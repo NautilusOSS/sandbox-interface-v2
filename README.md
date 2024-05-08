@@ -1,3 +1,3 @@
-# Nautilus NFT Marketplace: Front End Interface
+Shelly's Sandbox: Front End Interface
 
-An open source repository for Nautilus front end interface. Nautilus is a NFT Marketplace on Voi Network.
+An open source repository for Shelly's Sandbox front end interface on Voi Network.
