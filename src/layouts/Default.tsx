@@ -29,7 +29,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         <header></header>
         <main>{children}</main>
       </LayoutRoot>
-      <Footer />
+      {/*<Footer />*/}
     </>
   );
 };

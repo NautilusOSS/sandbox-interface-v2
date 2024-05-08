@@ -4,6 +4,7 @@ export const routes = [
     path: "/",
     Component: Page.Home,
   },
+  /*
   {
     path: "/collection",
     Component: Page.Collections,
@@ -32,4 +33,5 @@ export const routes = [
     path: "/sandbox",
     Component: Page.Sandbox,
   },
+  */
 ];

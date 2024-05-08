@@ -1,6 +1,15 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Layout from "../../layouts/Default";
-import { Grid, Skeleton } from "@mui/material";
+import {
+  Box,
+  Grid,
+  Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+} from "@mui/material";
 import { Link, useNavigate } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import { RootState } from "../../store/store";
@@ -8,10 +17,10 @@ import styled from "styled-components";
 import NFTSaleActivityTable from "../../components/NFTSaleActivityTable";
 import RankingList from "../../components/RankingList";
 import { Stack } from "@mui/material";
-import { getTokens } from "../../store/tokenSlice";
+import { getTokens } from "../../store/nftTokenSlice";
 import { UnknownAction } from "@reduxjs/toolkit";
 import { getCollections } from "../../store/collectionSlice";
-import { ListedToken, ListingI, TokenI } from "../../types";
+import { ARC200TokenI, ListedToken, ListingI, TokenI } from "../../types";
 import { getSales } from "../../store/saleSlice";
 import Marquee from "react-fast-marquee";
 import CartNftCard from "../../components/CartNFTCard";
@@ -19,6 +28,16 @@ import { getPrices } from "../../store/dexSlice";
 import { CTCINFO_LP_WVOI_VOI } from "../../contants/dex";
 import { getListings } from "../../store/listingSlice";
 import { getRankings } from "../../utils/mp";
+import { CONTRACT, abi } from "ulujs";
+import { getAlgorandClients } from "../../wallets";
+import { useWallet } from "@txnlab/use-wallet";
+import { Button as MButton } from "@mui/material";
+import algosdk from "algosdk";
+import { toast } from "react-toastify";
+import axios from "axios";
+import { prepareString } from "../../utils/string";
+import { arc200_balanceOf } from "ulujs/types/arc200";
+import BigNumber from "bignumber.js";
 
 const ActivityFilterContainer = styled.div`
   display: flex;
@@ -174,385 +193,434 @@ function shuffleArray<T>(array: T[]): T[] {
   return shuffledArray;
 }
 
-export const Home: React.FC = () => {
-  const [activeFilter, setActiveFilter] = useState<string[]>(["all"]);
-  const handleFilterClick = (value: string) => {
-    if (value === "all") return setActiveFilter(["all"]);
-    if (activeFilter.length === 1 && activeFilter.includes("all"))
-      return setActiveFilter([value]);
-    if (activeFilter.includes(value)) {
-      const newActiveFilter = activeFilter.filter((filter) => filter !== value);
-      if (newActiveFilter.length === 0) return setActiveFilter(["all"]);
-      setActiveFilter(activeFilter.filter((filter) => filter !== value));
-    } else {
-      setActiveFilter([...activeFilter, value]);
-    }
-  };
+interface ChannelCardProps {
+  onClick: any;
+  channel: any;
+}
 
-  /* Dispatch */
-  const dispatch = useDispatch();
-  /* Dex */
-  const prices = useSelector((state: RootState) => state.dex.prices);
-  const dexStatus = useSelector((state: RootState) => state.dex.status);
+const ChannelCard: React.FC<ChannelCardProps> = ({ onClick, channel: el }) => {
+  const { activeAccount } = useWallet();
+  const [balance, setBalance] = useState("");
   useEffect(() => {
-    dispatch(getPrices() as unknown as UnknownAction);
-  }, [dispatch]);
-  const exchangeRate = useMemo(() => {
-    if (!prices || dexStatus !== "succeeded") return 0;
-    const voiPrice = prices.find((p) => p.contractId === CTCINFO_LP_WVOI_VOI);
-    if (!voiPrice) return 0;
-    return voiPrice.rate;
-  }, [prices, dexStatus]);
-  /* Listings */
-  const listings = useSelector((state: any) => state.listings.listings);
-  const listingsStatus = useSelector((state: any) => state.listings.status);
-  useEffect(() => {
-    dispatch(getListings() as unknown as UnknownAction);
-  }, [dispatch]);
-  /* Tokens */
-  const tokens = useSelector((state: any) => state.tokens.tokens);
-  const tokenStatus = useSelector((state: any) => state.tokens.status);
-  useEffect(() => {
-    dispatch(getTokens() as unknown as UnknownAction);
-  }, [dispatch]);
-  /* Collections */
-  const collections = useSelector(
-    (state: any) => state.collections.collections
-  );
-  const collectionStatus = useSelector(
-    (state: any) => state.collections.status
-  );
-  useEffect(() => {
-    dispatch(getCollections() as unknown as UnknownAction);
-  }, [dispatch]);
-  /* Sales */
-  const sales = useSelector((state: any) => state.sales.sales);
-  const salesStatus = useSelector((state: any) => state.sales.status);
-  useEffect(() => {
-    dispatch(getSales() as unknown as UnknownAction);
-  }, [dispatch]);
-
-  /* Theme */
-  const isDarkTheme = useSelector(
-    (state: RootState) => state.theme.isDarkTheme
-  );
-
-  /* Router */
-  const navigate = useNavigate();
-
-  /* Toggle Buttons */
-  const [selectedOption, setSelectedOption] = useState<string | null>("all");
-
-  const handleOptionChange = (
-    event: React.MouseEvent<HTMLElement>,
-    newOption: string | null
-  ) => {
-    if (newOption !== null) {
-      setSelectedOption(newOption);
-    }
-  };
-
-  const listedNfts = useMemo(() => {
-    if (tokenStatus !== "succeeded") return [];
-    const listedNfts: ListedToken[] =
-      tokens
-        ?.filter((nft: TokenI) => {
-          return listings?.some(
-            (listing: ListingI) =>
-              `${listing.collectionId}` === `${nft.contractId}` &&
-              `${listing.tokenId}` === `${nft.tokenId}`
-          );
-        })
-        ?.map((nft: TokenI) => {
-          const listing = listings.find(
-            (l: ListingI) =>
-              `${l.collectionId}` === `${nft.contractId}` &&
-              `${l.tokenId}` === `${nft.tokenId}`
-          );
-          return {
-            ...nft,
-            listing,
-          };
-        }) || [];
-    listedNfts.sort(
-      (a: any, b: any) => b.listing.timestamp - a.listing.timestamp
-    );
-    // remove duplicates listings by collection
-    const seen: any = {};
-    const filteredListedNfts = listedNfts.filter((nft: any) => {
-      const key = `${nft.contractId}`;
-      if (seen[key]) {
-        return false;
-      }
-      seen[key] = true;
-      return true;
+    if (!activeAccount) return;
+    const { address: addr } = activeAccount;
+    const { algodClient, indexerClient } = getAlgorandClients();
+    const ci = new CONTRACT(el.inTok, algodClient, indexerClient, abi.arc200, {
+      addr,
+      sk: new Uint8Array(0),
     });
-    return filteredListedNfts;
-  }, [tokenStatus, tokens, listings]);
-
-  const listedCollections = useMemo(() => {
-    if (collectionStatus !== "succeeded") return [];
-    const listedCollections =
-      collections
-        ?.filter((c: any) => {
-          return listedNfts?.some(
-            (nft: any) => `${nft.contractId}` === `${c.contractId}`
-          );
-        })
-        .map((c: any) => {
-          return {
-            ...c,
-            tokens: listedNfts?.filter(
-              (nft: any) => `${nft.contractId}` === `${c.contractId}`
-            ),
-          };
-        }) || [];
-    listedCollections.sort(
-      (a: any, b: any) =>
-        b.tokens[0].listing.createTimestamp -
-        a.tokens[0].listing.createTimestamp
-    );
-    return listedCollections;
-  }, [collectionStatus, collections, listedNfts]);
-
-  const rankings: any = useMemo(() => {
-    if (
-      !sales ||
-      !listings ||
-      !exchangeRate ||
-      salesStatus !== "succeeded" ||
-      collectionStatus !== "succeeded" ||
-      tokenStatus !== "succeeded" ||
-      dexStatus !== "succeeded"
-    )
-      return new Map();
-    return getRankings(tokens, collections, sales, listings, exchangeRate);
-  }, [sales, tokens, collections, listings, exchangeRate]);
-
-  const isLoading = useMemo(
-    () =>
-      !exchangeRate ||
-      !listings ||
-      !listedNfts ||
-      !listedCollections ||
-      !rankings ||
-      listingsStatus !== "succeeded" ||
-      tokenStatus !== "succeeded" ||
-      collectionStatus !== "succeeded" ||
-      salesStatus !== "succeeded" ||
-      dexStatus !== "succeeded",
-    [
-      listings,
-      listedNfts,
-      listedCollections,
-      rankings,
-      exchangeRate,
-      tokenStatus,
-      collectionStatus,
-      salesStatus,
-      dexStatus,
-    ]
-  );
-
+    ci.arc200_balanceOf(addr).then((arc200_balanceOfR: any) => {
+      if (!arc200_balanceOfR.success) return;
+      setBalance(
+        new BigNumber(arc200_balanceOfR.returnValue)
+          .dividedBy(new BigNumber(10).pow(el.inTokDecimals))
+          .toFixed(6)
+      );
+    });
+  }, [activeAccount]);
+  console.log({ balance });
   return (
+    <TableRow>
+      <TableCell>{el.chId}</TableCell>
+      <TableCell>
+        {balance} {el.inTokName}
+      </TableCell>
+      <TableCell>
+        <Stack direction="column">
+          <Box>{el.inTokName}</Box>
+          <Link
+            to={`https://shellyssandbox.xyz/#/token/${el.inTok}`}
+            target="_blank"
+          >
+            {el.inTok}
+          </Link>
+        </Stack>
+      </TableCell>
+      <TableCell>
+        <Stack>
+          <Box>{el.outTokName}</Box>
+          <Link
+            to={`https://shellyssandbox.xyz/#/token/${el.outTok}`}
+            target="_blank"
+          >
+            {el.outTok}
+          </Link>
+        </Stack>
+      </TableCell>
+      <TableCell>
+        <MButton
+          onClick={() => {
+            onClick(el);
+          }}
+        >
+          Transfer
+        </MButton>
+      </TableCell>
+    </TableRow>
+  );
+};
+
+export const Home: React.FC = () => {
+  const { activeAccount, signTransactions, sendTransactions } = useWallet();
+  const [tokens, setTokens] = useState<ARC200TokenI[]>();
+  useEffect(() => {
+    axios.get(`/api/tokens.json`).then(({ data }) => {
+      setTokens(
+        data.map((el: any) => ({
+          ...el,
+          name: prepareString(el.name),
+          symbol: prepareString(el.symbol),
+        }))
+      );
+    });
+  }, []);
+  const [channels, setChannels] = useState<any[]>();
+  useEffect(() => {
+    if (!tokens) return;
+    const { algodClient, indexerClient } = getAlgorandClients();
+    const ctcInfoTunnel = 40425732;
+    const ci = new CONTRACT(
+      ctcInfoTunnel,
+      algodClient,
+      indexerClient,
+      {
+        name: "",
+        desc: "",
+        methods: [],
+        events: [
+          // ChannelCreate(uint256,uint64,uint64,address)
+          {
+            name: "ChannelCreate",
+            args: [
+              {
+                name: "channelId",
+                type: "uint256",
+              },
+              {
+                name: "inTokenId",
+                type: "uint64",
+              },
+              {
+                name: "outTokenId",
+                type: "uint64",
+              },
+              {
+                name: "channelerAddress",
+                type: "address",
+              },
+            ],
+          },
+        ],
+      },
+      {
+        addr: "G3MSA75OZEJTCCENOJDLDJK7UD7E2K5DNC7FVHCNOV7E3I4DTXTOWDUIFQ",
+        sk: new Uint8Array(0),
+      }
+    );
+    ci.ChannelCreate().then((evts: any) => {
+      const channels = [];
+      for (const evt of evts) {
+        const [txId, round, ts, chId, inTok, outTok, channeller] = evt;
+        const inTokeN = Number(inTok);
+        const outTokN = Number(outTok);
+        console.log({ tokens, inTok, outTok });
+        const inToken = tokens?.find(
+          (t: ARC200TokenI) => t.tokenId === inTokeN
+        );
+        console.log({ inToken });
+        const inTokName = inToken?.symbol || "";
+        const inTokDecimals = Number(inToken?.decimals || 0);
+        const outTokName =
+          tokens?.find((t: ARC200TokenI) => t.tokenId === outTokN)?.symbol ||
+          "";
+        channels.push({
+          txId,
+          round,
+          ts,
+          chId: Number(chId),
+          inTok: inTokeN,
+          inTokName,
+          inTokDecimals,
+          outTok: outTokN,
+          outTokN,
+          outTokName,
+          channeller,
+        });
+      }
+      setChannels(channels);
+    });
+  }, [tokens]);
+  const handleButtonClick = async (channel: any) => {
+    if (!channels || !activeAccount) return;
+    try {
+      const { algodClient, indexerClient } = getAlgorandClients();
+      //const channel = channels[index];
+      console.log({ channel });
+      const { chId, inTok, outTok } = channel;
+      const ctcInfoTunnel = 40425732;
+      const ciInTok = new CONTRACT(
+        inTok,
+        algodClient,
+        indexerClient,
+        abi.arc200,
+        {
+          addr: activeAccount.address,
+          sk: new Uint8Array(0),
+        }
+      );
+      const ciOutTok = new CONTRACT(
+        outTok,
+        algodClient,
+        indexerClient,
+        abi.arc200,
+        {
+          addr: activeAccount.address,
+          sk: new Uint8Array(0),
+        }
+      );
+      const tunnelABI = {
+        name: "",
+        desc: "",
+        methods: [
+          // custom()void
+          {
+            name: "custom",
+            args: [],
+            returns: {
+              type: "void",
+            },
+          },
+          // a_channeler_useChannel(uint256,uint256)void
+          {
+            name: "a_channeler_useChannel",
+            args: [
+              {
+                name: "channelId",
+                type: "uint256",
+              },
+              {
+                name: "tokenAmount",
+                type: "uint256",
+              },
+            ],
+            returns: {
+              type: "void",
+            },
+          },
+        ],
+        events: [],
+      };
+      const ci = new CONTRACT(
+        ctcInfoTunnel,
+        algodClient,
+        indexerClient,
+        tunnelABI,
+        {
+          addr: activeAccount.address,
+          sk: new Uint8Array(0),
+        }
+      );
+      const builder = {
+        inTok: new CONTRACT(
+          inTok,
+          algodClient,
+          indexerClient,
+          abi.arc200,
+          {
+            addr: activeAccount.address,
+            sk: new Uint8Array(0),
+          },
+          true,
+          false,
+          true
+        ),
+        outTok: new CONTRACT(
+          outTok,
+          algodClient,
+          indexerClient,
+          abi.arc200,
+          {
+            addr: activeAccount.address,
+            sk: new Uint8Array(0),
+          },
+          true,
+          false,
+          true
+        ),
+        tunnel: new CONTRACT(
+          ctcInfoTunnel,
+          algodClient,
+          indexerClient,
+          tunnelABI,
+          {
+            addr: activeAccount.address,
+            sk: new Uint8Array(0),
+          },
+          true,
+          false,
+          true
+        ),
+      };
+      // ---------------------------------------------
+      // ensure
+      // use channel
+      // ---------------------------------------------
+      // ensure
+      // - ensure tunnel inToken balancce
+      // - ensure approval inToken
+      // - ensure balance outToken
+      // ---------------------------------------------
+      // - ensure tunnel inToken balancce
+      // ---------------------------------------------
+      do {
+        const arc200_transferR = await ciInTok.arc200_transfer(
+          algosdk.getApplicationAddress(ctcInfoTunnel),
+          0
+        );
+        if (!arc200_transferR.success) {
+          ciInTok.setPaymentAmount(28500);
+          const arc200_transferR = await ciInTok.arc200_transfer(
+            algosdk.getApplicationAddress(ctcInfoTunnel),
+            0
+          );
+          if (!arc200_transferR.success)
+            throw new Error("arc200_transfer failed");
+          await toast.promise(
+            signTransactions(
+              arc200_transferR.txns.map(
+                (txn: string) => new Uint8Array(Buffer.from(txn, "base64"))
+              )
+            ).then(sendTransactions),
+            {
+              pending: "Pending transaction...",
+            }
+          );
+        }
+      } while (0);
+      // ---------------------------------------------
+      // - ensure approval inToken
+      // ---------------------------------------------
+      do {
+        const arc200_approveR = await ciInTok.arc200_approve(
+          algosdk.getApplicationAddress(ctcInfoTunnel),
+          0
+        );
+        if (!arc200_approveR.success) {
+          ciInTok.setPaymentAmount(28100);
+          const arc200_approveR = await ciInTok.arc200_approve(
+            algosdk.getApplicationAddress(ctcInfoTunnel),
+            0
+          );
+          if (!arc200_approveR.success)
+            throw new Error("arc200_approve failed");
+          await toast.promise(
+            signTransactions(
+              arc200_approveR.txns.map(
+                (txn: string) => new Uint8Array(Buffer.from(txn, "base64"))
+              )
+            ).then(sendTransactions),
+            {
+              pending: "Pending transaction...",
+            }
+          );
+        }
+      } while (0);
+      // ---------------------------------------------
+      // - ensure balance outToken
+      // ---------------------------------------------
+      do {
+        const arc200_transferR = await ciOutTok.arc200_transfer(
+          activeAccount.address,
+          0
+        );
+        if (!arc200_transferR.success) {
+          ciOutTok.setPaymentAmount(28500);
+          const arc200_transferR = await ciOutTok.arc200_transfer(
+            activeAccount.address,
+            0
+          );
+          if (!arc200_transferR.success)
+            throw new Error("arc200_transfer failed");
+          await toast.promise(
+            signTransactions(
+              arc200_transferR.txns.map(
+                (txn: string) => new Uint8Array(Buffer.from(txn, "base64"))
+              )
+            ).then(sendTransactions),
+            {
+              pending: "Pending transaction...",
+            }
+          );
+        }
+      } while (0);
+      // ---------------------------------------------
+      // use channel
+      // ---------------------------------------------
+
+      const arc200_balanceOfR = await ciInTok.arc200_balanceOf(
+        activeAccount.address
+      );
+      if (!arc200_balanceOfR) throw new Error("balanceOf failed");
+
+      const channelId = chId;
+      const exchangeAmount = arc200_balanceOfR.returnValue; // all holdings
+      const buildN = [
+        builder.inTok.arc200_approve(
+          algosdk.getApplicationAddress(ctcInfoTunnel),
+          exchangeAmount
+        ),
+        builder.tunnel.a_channeler_useChannel(channelId, exchangeAmount),
+      ];
+      const buildP = (await Promise.all(buildN)).map(({ obj }) => obj);
+
+      ci.setFee(2000);
+      ci.setExtraTxns(buildP);
+      ci.setEnableGroupResourceSharing(true);
+      ci.setAccounts([algosdk.getApplicationAddress(ctcInfoTunnel)]);
+      const customR = await ci.custom();
+      console.log({ customR });
+      if (!customR.success) throw new Error("custom simulate failed");
+
+      await toast.promise(
+        signTransactions(
+          customR.txns.map(
+            (txn: string) => new Uint8Array(Buffer.from(txn, "base64"))
+          )
+        ).then(sendTransactions),
+        {
+          pending: "Pending transaction...",
+        }
+      );
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+  };
+  const isLoading = !channels;
+  return !isLoading ? (
     <Layout>
-      {!isLoading ? (
-        <div>
-          <SectionHeading>
-            <SectionTitle className={isDarkTheme ? "dark" : "light"}>
-              New Listings
-            </SectionTitle>
-            <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
-              <SectionMoreButtonContainer>
-                <SectionMoreButton
-                  className={isDarkTheme ? "button-dark" : "button-light"}
-                >
-                  <Link to="/listing">
-                    <SectionMoreButtonText
-                      className={
-                        isDarkTheme ? "button-text-dark" : "button-text-light"
-                      }
-                    >
-                      View All
-                    </SectionMoreButtonText>
-                  </Link>
-                </SectionMoreButton>
-              </SectionMoreButtonContainer>
-            </Stack>
-          </SectionHeading>
-          {listedNfts ? (
-            <div
-              style={{
-                width: "100%",
-                overflowX: "hidden",
-              }}
-            >
-              <Marquee direction="left">
-                <Stack direction="row" spacing={2} sx={{ marginLeft: "16px" }}>
-                  {listedNfts.slice(0, 12).map((el: ListedToken) => {
-                    return (
-                      <CartNftCard
-                        key={el.listing.transactionId}
-                        listedNft={el}
-                      />
-                    );
-                  })}
-                </Stack>
-              </Marquee>
-            </div>
-          ) : (
-            "No NFTs available for sale."
-          )}
-
-          {/* Top Collections */}
-          <SectionHeading>
-            <SectionTitle className={isDarkTheme ? "dark" : "light"}>
-              Top Collections
-            </SectionTitle>
-            <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
-              <SectionMoreButtonContainer>
-                <SectionMoreButton
-                  className={isDarkTheme ? "button-dark" : "button-light"}
-                >
-                  <Link to="/collection">
-                    <SectionMoreButtonText
-                      className={
-                        isDarkTheme ? "button-text-dark" : "button-text-light"
-                      }
-                    >
-                      View All
-                    </SectionMoreButtonText>
-                  </Link>
-                </SectionMoreButton>
-              </SectionMoreButtonContainer>
-            </Stack>
-          </SectionHeading>
-          <RankingList rankings={rankings} selectedOption={selectedOption} />
-          {/* Activity */}
-          <SectionHeading>
-            <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
-              <SectionTitle className={isDarkTheme ? "dark" : "light"}>
-                Activity
-              </SectionTitle>
-              <ActivityFilterContainer>
-                {[
-                  {
-                    label: "All",
-                    value: "all",
-                  },
-                  {
-                    label: "Listing",
-                    value: "listing",
-                  },
-                  {
-                    label: "Sale",
-                    value: "sale",
-                  },
-                ].map((filter) => {
-                  if (activeFilter.includes(filter.value)) {
-                    return (
-                      <ActiveFilter
-                        onClick={() => handleFilterClick(filter.value)}
-                      >
-                        <ActiveFilterLabel>{filter.label}</ActiveFilterLabel>
-                      </ActiveFilter>
-                    );
-                  }
-                  return (
-                    <Filter onClick={() => handleFilterClick(filter.value)}>
-                      <FilterLabel>{filter.label}</FilterLabel>
-                    </Filter>
-                  );
-                })}
-              </ActivityFilterContainer>
-            </Stack>
-            <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
-              <SectionMoreButtonContainer>
-                <SectionMoreButton
-                  className={isDarkTheme ? "button-dark" : "button-light"}
-                >
-                  <Link to="/activity">
-                    <SectionMoreButtonText
-                      className={
-                        isDarkTheme ? "button-text-dark" : "button-text-light"
-                      }
-                    >
-                      View All
-                    </SectionMoreButtonText>
-                  </Link>
-                </SectionMoreButton>
-              </SectionMoreButtonContainer>
-            </Stack>
-          </SectionHeading>
-          <NFTSaleActivityTable
-            sales={sales}
-            tokens={tokens}
-            collections={collections}
-            listings={listings}
-            activeFilter={activeFilter}
-            limit={10}
-          />
-
-          {/* Banners */}
-          <SectionBanners>
-            <Grid container spacing={2}>
-              <Grid item xs={12} sm={6}>
-                <Link to="https://nftnavigator.xyz/" target="_blank">
-                  <img
-                    style={{
-                      width: "100%",
-                      cursor: "pointer",
-                      borderRadius: 10,
-                    }}
-                    src="/img/banner-nft-navigator.png"
-                    alt="VOI NFT Navigator Banner"
-                  />
-                </Link>
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <Link to="https://highforge.io/" target="_blank">
-                  <img
-                    style={{
-                      width: "100%",
-                      cursor: "pointer",
-                      borderRadius: 10,
-                    }}
-                    src="/img/banner-high-forge.png"
-                    alt="High Forge Banner"
-                  />
-                </Link>
-              </Grid>
-            </Grid>
-          </SectionBanners>
-        </div>
-      ) : (
-        <div>
-          <SectionHeading>
-            <Skeleton variant="rounded" width={240} height={40} />
-            <Skeleton variant="rounded" width={120} height={40} />
-          </SectionHeading>
-          <Grid container spacing={2} sx={{ mt: 5 }}>
-            {Array.from({ length: 12 }).map((_, i) => (
-              <Grid item xs={6} sm={4} md={3}>
-                <Skeleton
-                  sx={{ borderRadius: 10 }}
-                  variant="rounded"
-                  width="100%"
-                  height={469}
-                />
-              </Grid>
-            ))}
-          </Grid>
-          <Grid container spacing={2} sx={{ mt: 5 }}>
-            <Grid item xs={12} sm={6}>
-              <Skeleton variant="rounded" width="100%" height={240} />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <Skeleton variant="rounded" width="100%" height={240} />
-            </Grid>
-          </Grid>
-        </div>
-      )}
+      <h2>Channels</h2>
+      <p>
+        Transfer button exchanges Token (In) for Token (Out). The exchange is
+        irreversable. Use at your own risk.
+      </p>
+      <Table>
+        <TableHead>
+          <TableRow>
+            <TableCell>ChannelId</TableCell>
+            <TableCell>Balance</TableCell>
+            <TableCell>TokenId (In)</TableCell>
+            <TableCell>TokenId (Out)</TableCell>
+            <TableCell>Action</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {channels?.map((el, i) => (
+            <ChannelCard key={i} onClick={handleButtonClick} channel={el} />
+          ))}
+        </TableBody>
+      </Table>
     </Layout>
+  ) : (
+    "Loading..."
   );
 };
