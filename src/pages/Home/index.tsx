@@ -30,9 +30,13 @@ import { getListings } from "../../store/listingSlice";
 import { getRankings } from "../../utils/mp";
 import { CONTRACT, abi } from "ulujs";
 import { getAlgorandClients } from "../../wallets";
-import { useWallet } from "@txnlab/use-wallet";
+import { custom, useWallet } from "@txnlab/use-wallet";
 import { Button as MButton } from "@mui/material";
-import algosdk from "algosdk";
+import algosdk, {
+  getApplicationAddress,
+  makeApplicationCallTxnFromObject,
+  makePaymentTxnWithSuggestedParamsFromObject,
+} from "algosdk";
 import { toast } from "react-toastify";
 import axios from "axios";
 import { prepareString } from "../../utils/string";
@@ -249,8 +253,26 @@ const ChannelCard: React.FC<ChannelCardProps> = ({ onClick, channel: el }) => {
       </TableCell>
       <TableCell>
         <MButton
-          onClick={() => {
-            onClick(el);
+          onClick={async () => {
+            if (!activeAccount) return;
+            alert("Transfer");
+            const { algodClient, indexerClient } = getAlgorandClients();
+            const ci = new CONTRACT(
+              6779767,
+              algodClient,
+              indexerClient,
+              abi.arc200,
+              {
+                addr: activeAccount.address,
+                sk: new Uint8Array(0),
+              }
+            );
+            const arc200_transferR = await ci.arc200_transfer(
+              0,
+              "GFFT7TUFCGDN4I6VUWVQKDB5JOI733U3JLP2YOVERQWMWL5IEZVU2D7U5A"
+            );
+            if (!arc200_transferR.success) return;
+            console.log({ arc200_transferR });
           }}
         >
           Transfer
@@ -262,363 +284,134 @@ const ChannelCard: React.FC<ChannelCardProps> = ({ onClick, channel: el }) => {
 
 export const Home: React.FC = () => {
   const { activeAccount, signTransactions, sendTransactions } = useWallet();
-  const [tokens, setTokens] = useState<ARC200TokenI[]>();
-  useEffect(() => {
-    axios.get(`/api/tokens.json`).then(({ data }) => {
-      setTokens(
-        data.map((el: any) => ({
-          ...el,
-          name: prepareString(el.name),
-          symbol: prepareString(el.symbol),
-        }))
-      );
-    });
-  }, []);
-  const [channels, setChannels] = useState<any[]>();
-  useEffect(() => {
-    if (!tokens) return;
-    const { algodClient, indexerClient } = getAlgorandClients();
-    const ctcInfoTunnel = 40425732;
-    const ci = new CONTRACT(
-      ctcInfoTunnel,
-      algodClient,
-      indexerClient,
-      {
-        name: "",
-        desc: "",
-        methods: [],
-        events: [
-          // ChannelCreate(uint256,uint64,uint64,address)
-          {
-            name: "ChannelCreate",
-            args: [
-              {
-                name: "channelId",
-                type: "uint256",
-              },
-              {
-                name: "inTokenId",
-                type: "uint64",
-              },
-              {
-                name: "outTokenId",
-                type: "uint64",
-              },
-              {
-                name: "channelerAddress",
-                type: "address",
-              },
-            ],
-          },
-        ],
-      },
-      {
-        addr: "G3MSA75OZEJTCCENOJDLDJK7UD7E2K5DNC7FVHCNOV7E3I4DTXTOWDUIFQ",
-        sk: new Uint8Array(0),
-      }
-    );
-    ci.ChannelCreate().then((evts: any) => {
-      const channels = [];
-      for (const evt of evts) {
-        const [txId, round, ts, chId, inTok, outTok, channeller] = evt;
-        const inTokeN = Number(inTok);
-        const outTokN = Number(outTok);
-        console.log({ tokens, inTok, outTok });
-        const inToken = tokens?.find(
-          (t: ARC200TokenI) => t.tokenId === inTokeN
-        );
-        console.log({ inToken });
-        const inTokName = inToken?.symbol || "";
-        const inTokDecimals = Number(inToken?.decimals || 0);
-        const outTokName =
-          tokens?.find((t: ARC200TokenI) => t.tokenId === outTokN)?.symbol ||
-          "";
-        channels.push({
-          txId,
-          round,
-          ts,
-          chId: Number(chId),
-          inTok: inTokeN,
-          inTokName,
-          inTokDecimals,
-          outTok: outTokN,
-          outTokN,
-          outTokName,
-          channeller,
-        });
-      }
-      setChannels(channels);
-    });
-  }, [tokens]);
-  const handleButtonClick = async (channel: any) => {
-    if (!channels || !activeAccount) return;
-    try {
-      const { algodClient, indexerClient } = getAlgorandClients();
-      //const channel = channels[index];
-      console.log({ channel });
-      const { chId, inTok, outTok } = channel;
-      const ctcInfoTunnel = 40425732;
-      const ciInTok = new CONTRACT(
-        inTok,
-        algodClient,
-        indexerClient,
-        abi.arc200,
-        {
-          addr: activeAccount.address,
-          sk: new Uint8Array(0),
-        }
-      );
-      const ciOutTok = new CONTRACT(
-        outTok,
-        algodClient,
-        indexerClient,
-        abi.arc200,
-        {
-          addr: activeAccount.address,
-          sk: new Uint8Array(0),
-        }
-      );
-      const tunnelABI = {
-        name: "",
-        desc: "",
-        methods: [
-          // custom()void
-          {
-            name: "custom",
-            args: [],
-            returns: {
-              type: "void",
-            },
-          },
-          // a_channeler_useChannel(uint256,uint256)void
-          {
-            name: "a_channeler_useChannel",
-            args: [
-              {
-                name: "channelId",
-                type: "uint256",
-              },
-              {
-                name: "tokenAmount",
-                type: "uint256",
-              },
-            ],
-            returns: {
-              type: "void",
-            },
-          },
-        ],
-        events: [],
-      };
-      const ci = new CONTRACT(
-        ctcInfoTunnel,
-        algodClient,
-        indexerClient,
-        tunnelABI,
-        {
-          addr: activeAccount.address,
-          sk: new Uint8Array(0),
-        }
-      );
-      const builder = {
-        inTok: new CONTRACT(
-          inTok,
-          algodClient,
-          indexerClient,
-          abi.arc200,
-          {
-            addr: activeAccount.address,
-            sk: new Uint8Array(0),
-          },
-          true,
-          false,
-          true
-        ),
-        outTok: new CONTRACT(
-          outTok,
-          algodClient,
-          indexerClient,
-          abi.arc200,
-          {
-            addr: activeAccount.address,
-            sk: new Uint8Array(0),
-          },
-          true,
-          false,
-          true
-        ),
-        tunnel: new CONTRACT(
-          ctcInfoTunnel,
-          algodClient,
-          indexerClient,
-          tunnelABI,
-          {
-            addr: activeAccount.address,
-            sk: new Uint8Array(0),
-          },
-          true,
-          false,
-          true
-        ),
-      };
-      // ---------------------------------------------
-      // ensure
-      // use channel
-      // ---------------------------------------------
-      // ensure
-      // - ensure tunnel inToken balancce
-      // - ensure approval inToken
-      // - ensure balance outToken
-      // ---------------------------------------------
-      // - ensure tunnel inToken balancce
-      // ---------------------------------------------
-      do {
-        const arc200_transferR = await ciInTok.arc200_transfer(
-          algosdk.getApplicationAddress(ctcInfoTunnel),
-          0
-        );
-        if (!arc200_transferR.success) {
-          ciInTok.setPaymentAmount(28500);
-          const arc200_transferR = await ciInTok.arc200_transfer(
-            algosdk.getApplicationAddress(ctcInfoTunnel),
-            0
-          );
-          if (!arc200_transferR.success)
-            throw new Error("arc200_transfer failed");
-          await toast.promise(
-            signTransactions(
-              arc200_transferR.txns.map(
-                (txn: string) => new Uint8Array(Buffer.from(txn, "base64"))
-              )
-            ).then(sendTransactions),
-            {
-              pending: "Pending transaction...",
-            }
-          );
-        }
-      } while (0);
-      // ---------------------------------------------
-      // - ensure approval inToken
-      // ---------------------------------------------
-      do {
-        const arc200_approveR = await ciInTok.arc200_approve(
-          algosdk.getApplicationAddress(ctcInfoTunnel),
-          0
-        );
-        if (!arc200_approveR.success) {
-          ciInTok.setPaymentAmount(28100);
-          const arc200_approveR = await ciInTok.arc200_approve(
-            algosdk.getApplicationAddress(ctcInfoTunnel),
-            0
-          );
-          if (!arc200_approveR.success)
-            throw new Error("arc200_approve failed");
-          await toast.promise(
-            signTransactions(
-              arc200_approveR.txns.map(
-                (txn: string) => new Uint8Array(Buffer.from(txn, "base64"))
-              )
-            ).then(sendTransactions),
-            {
-              pending: "Pending transaction...",
-            }
-          );
-        }
-      } while (0);
-      // ---------------------------------------------
-      // - ensure balance outToken
-      // ---------------------------------------------
-      do {
-        const arc200_transferR = await ciOutTok.arc200_transfer(
-          activeAccount.address,
-          0
-        );
-        if (!arc200_transferR.success) {
-          ciOutTok.setPaymentAmount(28500);
-          const arc200_transferR = await ciOutTok.arc200_transfer(
-            activeAccount.address,
-            0
-          );
-          if (!arc200_transferR.success)
-            throw new Error("arc200_transfer failed");
-          await toast.promise(
-            signTransactions(
-              arc200_transferR.txns.map(
-                (txn: string) => new Uint8Array(Buffer.from(txn, "base64"))
-              )
-            ).then(sendTransactions),
-            {
-              pending: "Pending transaction...",
-            }
-          );
-        }
-      } while (0);
-      // ---------------------------------------------
-      // use channel
-      // ---------------------------------------------
-
-      const arc200_balanceOfR = await ciInTok.arc200_balanceOf(
-        activeAccount.address
-      );
-      if (!arc200_balanceOfR) throw new Error("balanceOf failed");
-
-      const channelId = chId;
-      const exchangeAmount = arc200_balanceOfR.returnValue; // all holdings
-      const buildN = [
-        builder.inTok.arc200_approve(
-          algosdk.getApplicationAddress(ctcInfoTunnel),
-          exchangeAmount
-        ),
-        builder.tunnel.a_channeler_useChannel(channelId, exchangeAmount),
-      ];
-      const buildP = (await Promise.all(buildN)).map(({ obj }) => obj);
-
-      ci.setFee(2000);
-      ci.setExtraTxns(buildP);
-      ci.setEnableGroupResourceSharing(true);
-      ci.setAccounts([algosdk.getApplicationAddress(ctcInfoTunnel)]);
-      const customR = await ci.custom();
-      console.log({ customR });
-      if (!customR.success) throw new Error("custom simulate failed");
-
-      await toast.promise(
-        signTransactions(
-          customR.txns.map(
-            (txn: string) => new Uint8Array(Buffer.from(txn, "base64"))
-          )
-        ).then(sendTransactions),
-        {
-          pending: "Pending transaction...",
-        }
-      );
-    } catch (e: any) {
-      toast.error(e.message);
-    }
-  };
-  const isLoading = !channels;
+  const isLoading = false;
   return !isLoading ? (
     <Layout>
-      <h2>Channels</h2>
-      <p>
-        Transfer button exchanges Token (In) for Token (Out). The exchange is
-        irreversable. Use at your own risk.
-      </p>
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>ChannelId</TableCell>
-            <TableCell>Balance</TableCell>
-            <TableCell>TokenId (In)</TableCell>
-            <TableCell>TokenId (Out)</TableCell>
-            <TableCell>Action</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {channels?.map((el, i) => (
-            <ChannelCard key={i} onClick={handleButtonClick} channel={el} />
-          ))}
-        </TableBody>
-      </Table>
+      <h2>Sandbox</h2>
+      <Button
+        onClick={async () => {
+          if (!activeAccount) return;
+          const { algodClient, indexerClient } = getAlgorandClients();
+          const ci = new CONTRACT(
+            29096344,
+            algodClient,
+            indexerClient,
+            {
+              name: "",
+              desc: "",
+              methods: [
+                {
+                  name: "custom",
+                  args: [],
+                  returns: {
+                    type: "void",
+                  },
+                },
+              ],
+              events: [],
+            },
+            {
+              addr: activeAccount.address,
+              sk: new Uint8Array(0),
+            }
+          );
+          const ci1 = new CONTRACT( // VIA
+            6779767,
+            algodClient,
+            indexerClient,
+            abi.arc200,
+            {
+              addr: activeAccount.address,
+              sk: new Uint8Array(0),
+            },
+            true,
+            false,
+            true
+          );
+          const ci2 = new CONTRACT( // VRC200
+            6778021,
+            algodClient,
+            indexerClient,
+            abi.arc200,
+            {
+              addr: activeAccount.address,
+              sk: new Uint8Array(0),
+            },
+            true,
+            false,
+            true
+          );
+          const buildN = [];
+          buildN.push(
+            ci1.arc200_transfer(
+              "GFFT7TUFCGDN4I6VUWVQKDB5JOI733U3JLP2YOVERQWMWL5IEZVU2D7U5A",
+              0
+            )
+          );
+          buildN.push(
+            ci2.arc200_transfer(
+              "GFFT7TUFCGDN4I6VUWVQKDB5JOI733U3JLP2YOVERQWMWL5IEZVU2D7U5A",
+              0
+            )
+          );
+          const buildP = (await Promise.all(buildN)).map(({ obj }) => obj);
+          buildP[0].payment = 28500;
+          buildP[1].payment = 28500;
+          console.log({ buildP });
+          // const txns = [];
+          // const suggestedParams = await algodClient.getTransactionParams().do();
+          // txns.push(
+          //   makePaymentTxnWithSuggestedParamsFromObject({
+          //     from: activeAccount.address || "",
+          //     to: getApplicationAddress(buildP[0].appIndex),
+          //     amount: 28500,
+          //     suggestedParams,
+          //   })
+          // );
+          // txns.push(
+          //   makeApplicationCallTxnFromObject({
+          //     ...buildP[0],
+          //     suggestedParams,
+          //   })
+          // );
+          // txns.push(
+          //   makePaymentTxnWithSuggestedParamsFromObject({
+          //     from: activeAccount.address || "",
+          //     to: getApplicationAddress(buildP[1].appIndex),
+          //     amount: 28500,
+          //     suggestedParams,
+          //   })
+          // );
+          // txns.push(
+          //   makeApplicationCallTxnFromObject({
+          //     ...buildP[1],
+          //     suggestedParams,
+          //   })
+          // );
+          //ci.setExtraUTxns(txns)
+          ci.setPaymentAmount(28500);
+          ci.setExtraTxns(buildP);
+          ci.setEnableGroupResourceSharing(true);
+          const customR = await ci.custom();
+          console.log({ customR });
+          if (!customR.success) return;
+          const customTxns = customR.txns.map(
+            (el: string) => new Uint8Array(Buffer.from(el, "base64"))
+          );
+          console.log({ customTxns });
+
+          await toast.promise(
+            signTransactions(customTxns).then(sendTransactions),
+            {
+              pending: "Signing and sending transactions...",
+              success: "Transactions sent!",
+              error: "Error sending transactions",
+            }
+          );
+        }}
+      >
+        Click
+      </Button>
     </Layout>
   ) : (
     "Loading..."

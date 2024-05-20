@@ -2,7 +2,19 @@ import * as Page from "./pages";
 export const routes = [
   {
     path: "/",
-    Component: Page.Home,
+    Component: Page.Tokens,
+  },
+  {
+    path: "/channels",
+    Component: Page.Channels,
+  },
+  {
+    path: "/token",
+    Component: Page.Tokens,
+  },
+  {
+    path: "/token/:id",
+    Component: Page.Token,
   },
   /*
   {
@@ -29,9 +41,11 @@ export const routes = [
     path: "/listing",
     Component: Page.Listings,
   },
+  */
   {
     path: "/sandbox",
     Component: Page.Sandbox,
   },
-  */
+  /*
+   */
 ];

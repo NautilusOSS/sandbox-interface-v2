@@ -2,16 +2,16 @@ import React, { useEffect, useMemo, useState } from "react";
 import Layout from "../../layouts/Default";
 import {
   Box,
+  Chip,
   Grid,
   Skeleton,
-  Tab,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableRow,
 } from "@mui/material";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import { RootState } from "../../store/store";
 import styled from "styled-components";
@@ -39,7 +39,6 @@ import axios from "axios";
 import { prepareString } from "../../utils/string";
 import { arc200_balanceOf } from "ulujs/types/arc200";
 import BigNumber from "bignumber.js";
-import { Style } from "@mui/icons-material";
 
 const ActivityFilterContainer = styled.div`
   display: flex;
@@ -180,81 +179,52 @@ const SectionBanners = styled.div`
   margin-top: 45px;
 `;
 
+function shuffleArray<T>(array: T[]): T[] {
+  // Create a copy of the original array to avoid mutating the original array
+  const shuffledArray = [...array];
+  for (let i = shuffledArray.length - 1; i > 0; i--) {
+    // Generate a random index between 0 and i
+    const randomIndex = Math.floor(Math.random() * (i + 1));
+    // Swap elements between randomIndex and i
+    [shuffledArray[i], shuffledArray[randomIndex]] = [
+      shuffledArray[randomIndex],
+      shuffledArray[i],
+    ];
+  }
+  return shuffledArray;
+}
+
+const formatter = Intl.NumberFormat("en", { notation: "compact" });
+
 const StyledTableCell = (isDarkTheme: boolean) => styled(TableCell)`
   font-weight: 600;
   color: ${isDarkTheme ? "#fff" : "#000"} !important;
 `;
 
-const formatter = Intl.NumberFormat("en", { notation: "compact" });
-
-interface TokenCardProps {
-  token: any;
-}
-
-const TokenCard: React.FC<TokenCardProps> = ({ token: el }) => {
+export const Tokens: React.FC = () => {
   const { isDarkTheme } = useSelector((state: RootState) => state.theme);
   const TableCell = StyledTableCell(isDarkTheme);
-  return (
-    <>
-      <TableRow>
-        <TableCell>Contract ID</TableCell>
-        <TableCell align="right">{el.contractId}</TableCell>
-      </TableRow>
-      {!!el.tokenId ? (
-        <TableRow>
-          <TableCell>Token ID</TableCell>
-          <TableCell align="right">{el.tokenId}</TableCell>
-        </TableRow>
-      ) : null}
-      <TableRow>
-        <TableCell>Minted</TableCell>
-        <TableCell align="right">{el.mintRound}</TableCell>
-      </TableRow>
-      <TableRow>
-        <TableCell>Name</TableCell>
-        <TableCell align="right">{el.name}</TableCell>
-      </TableRow>
-      <TableRow>
-        <TableCell>Symbol</TableCell>
-        <TableCell align="right">{el.symbol}</TableCell>
-      </TableRow>
-      <TableRow>
-        <TableCell>Decimals</TableCell>
-        <TableCell align="right">{el.decimals}</TableCell>
-      </TableRow>
-      <TableRow>
-        <TableCell>Total Supply</TableCell>
-        <TableCell align="right">{el.totalSupply}</TableCell>
-      </TableRow>
-      {/*
-      <TableRow>
-        <TableCell>Holders</TableCell>
-        <TableCell align="right">{el.holders}</TableCell>
-      </TableRow>
-      <TableRow>
-        <TableCell>Transfers</TableCell>
-        <TableCell align="right">{el.transfers}</TableCell>
-      </TableRow>
-      <TableRow>
-        <TableCell>Approvals</TableCell>
-        <TableCell align="right">{el.approvals}</TableCell>
-      </TableRow>
-      */}
-    </>
-  );
-};
-
-export const Token: React.FC = () => {
-  const { isDarkTheme } = useSelector((state: RootState) => state.theme);
-  const TableCell = StyledTableCell(isDarkTheme);
-  const params = useParams();
-  const id = params.id;
+  const navigator = useNavigate();
+  const { activeAccount } = useWallet();
   const [tokens, setTokens] = useState<any[]>();
+  const [balances, setBalances] = useState<any>();
   useEffect(() => {
+    if (!activeAccount) return;
     axios
       .get(
-        `https://arc72-idx.nautilus.sh/nft-indexer/v1/arc200/tokens?contractId=${id}`
+        `https://arc72-idx.nautilus.sh/nft-indexer/v1/arc200/balances?accountId=${activeAccount?.address}`
       )
+      .then(({ data }) => {
+        const { balances } = data;
+        balances.sort((a: any, b: any) => {
+          return b.balance - a.balance;
+        });
+        setBalances(balances);
+      });
+  }, [activeAccount]);
+  useEffect(() => {
+    axios
+      .get(`https://arc72-idx.nautilus.sh/nft-indexer/v1/arc200/tokens`)
       .then(({ data }) => {
         const tokens = data.tokens.map((el: any) => {
           const totalSupply = formatter.format(
@@ -268,66 +238,82 @@ export const Token: React.FC = () => {
               str.length > 5 ? str.slice(0, 4) + "..." : str)(
               String(totalSupply)
             ),
+            balance: new BigNumber(
+              balances?.find(
+                (balance: any) => balance.contractId === el.contractId
+              )?.balance || "0"
+            )
+              .dividedBy(new BigNumber(10).pow(el.decimals))
+              .toNumber(),
           };
         });
         tokens.sort((a: any, b: any) => {
-          return b.holders - a.holders;
+          return balances?.length
+            ? b.balance - a.balance
+            : b.holders - a.holders;
         });
         setTokens(tokens);
       });
-  }, []);
-  const [balances, setBalances] = useState<any>();
-  useEffect(() => {
-    if (!tokens) return;
-    axios
-      .get(
-        `https://arc72-idx.nautilus.sh/nft-indexer/v1/arc200/balances?contractId=${id}`
-      )
-      .then(({ data }) => {
-        const { balances } = data;
-        balances.sort((a: any, b: any) => {
-          return b.balance - a.balance;
-        });
-        setBalances(
-          balances.map((el: any) => {
-            return {
-              ...el,
-              balance: new BigNumber(el.balance)
-                .dividedBy(new BigNumber(10).pow(tokens[0].decimals))
-                .toNumber(),
-            };
-          })
-        );
-      });
-  }, [tokens]);
-  console.log(balances);
+  }, [activeAccount, balances]);
   const isLoading = !tokens;
   return !isLoading ? (
     <Layout>
-      <h2>{tokens[0]?.name || "Token"}</h2>
-      <h3>Token Information</h3>
+      <h2>
+        Smart Assets{" "}
+        <small style={{ fontSize: "16px" }}>
+          // {tokens?.length ? `${tokens.length} results` : ""}
+        </small>
+      </h2>
       <Table>
+        <TableHead>
+          <TableRow>
+            <TableCell>Contract Id</TableCell>
+            <TableCell>Minted</TableCell>
+            <TableCell>Name</TableCell>
+            <TableCell>Symbol</TableCell>
+            <TableCell>Supply</TableCell>
+            {activeAccount && balances?.length ? (
+              <TableCell>Balance</TableCell>
+            ) : null}
+            <TableCell>Actions</TableCell>
+          </TableRow>
+        </TableHead>
         <TableBody>
           {tokens?.map((el, i) => (
-            <TokenCard key={i} token={el} />
-          ))}
-        </TableBody>
-      </Table>
-      <h3>Account Balances</h3>
-      <Table>
-        {
-          <TableHead>
             <TableRow>
-              <TableCell>AccountId</TableCell>
-              <TableCell>Balance</TableCell>
-            </TableRow>
-          </TableHead>
-        }
-        <TableBody>
-          {balances?.map((el: any, i: number) => (
-            <TableRow key={el.accountId}>
-              <TableCell>{el.accountId}</TableCell>
-              <TableCell>{formatter.format(el.balance)}</TableCell>
+              <TableCell>{el.contractId}</TableCell>
+              <TableCell>{el.mintRound}</TableCell>
+              <TableCell>
+                <Box style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <span>{el.name}</span>
+                  {el.tokenId !== null ? (
+                    <Chip
+                      label="Wrapped Asset"
+                      variant="outlined"
+                      size="small"
+                      style={{
+                        color: "#fff",
+                        borderColor: "#93f",
+                        backgroundColor: "#93f",
+                      }}
+                    />
+                  ) : null}
+                </Box>
+              </TableCell>
+              <TableCell>{el.symbol}</TableCell>
+              <TableCell>{el.totalSupply}</TableCell>
+              {activeAccount && balances?.length ? (
+                <TableCell>{el.balance.toLocaleString()}</TableCell>
+              ) : null}
+              <TableCell>
+                <MButton
+                  onClick={() => {
+                    navigator(`/token/${el.contractId}`);
+                  }}
+                >
+                  View
+                </MButton>
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>

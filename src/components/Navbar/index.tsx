@@ -3,6 +3,7 @@ import React, { useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import LightLogo from "static/logo-light.svg";
 import DarkLogo from "static/logo-dark.svg";
+import Logo from "static/default-monochrome.svg";
 import { RootState } from "../../store/store";
 import { useSelector } from "react-redux";
 import ThemeSelector from "../ThemeSelector";
@@ -239,8 +240,13 @@ const Navbar = () => {
     >
       <NavContainer>
         <Link to="/">
-          {/*<NavLogo src={isDarkTheme ? DarkLogo : LightLogo} /> */}
-          <HomeIcon fontSize="large" />
+          <img
+            src={Logo}
+            style={{
+              height: "32px",
+              filter: isDarkTheme ? "invert(1)" : undefined,
+            }}
+          />
         </Link>
         <div
           style={{
@@ -390,6 +396,7 @@ const Navbar = () => {
                         VOI
                       </div>
                     </Stack>
+                    {/*
                     <Stack
                       direction="row"
                       spacing={0.5}
@@ -401,6 +408,7 @@ const Navbar = () => {
                       <img src={VIAIcon} style={{ height: "12px" }} />
                       <div>{(balance / 1e6).toLocaleString()} VIA</div>
                     </Stack>
+                    */}
                   </Stack>
                 </div>
               </Stack>
